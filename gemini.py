@@ -6,7 +6,7 @@ import httpx
 from typing import List, Dict
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 SYSTEM_PROMPT = """You are CareSync AI, a helpful and empathetic clinical assistant embedded in a 
 patient health record management application called CareSync.
