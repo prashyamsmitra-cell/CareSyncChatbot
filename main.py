@@ -68,6 +68,11 @@ def health():
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
     }
 
+# ── Wake-up ping — responds instantly, no auth needed ─────────
+@app.get("/wake")
+def wake():
+    return {"awake": True}
+
 
 # ── Main chat endpoint ─────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
