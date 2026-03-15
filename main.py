@@ -91,13 +91,16 @@ async def chat(
     # ── Step 1: Try rule-based engine first ───────────────────
     rule_result = match_rules(message)
 
-    if rule_result and rule_result.confidence >= 0.6:
-        log.info(f"[{req.pid}] Rule matched (confidence={rule_result.confidence:.1f})")
-        return ChatResponse(
-            reply=rule_result.reply,
-            source="rule",
-            doctor=rule_result.doctor,
-        )
+    if rule_result:
+        log.info(f"[{req.pid}] Rule matched (confidence={rule_result.confidence:.1f}, off_topic={rule_result.off_topic})")
+        # Always use rule for off-topic, greetings, and app usage questions
+        # Only pass to Gemini if it's a health question with low confidence
+        if rule_result.off_topic or rule_result.confidence >= 0.4:
+            return ChatResponse(
+                reply=rule_result.reply,
+                source="rule",
+                doctor=rule_result.doctor,
+            )
 
     # ── Step 2: Fall back to Gemini ───────────────────────────
     if not os.getenv("GEMINI_API_KEY"):
@@ -122,14 +125,12 @@ async def chat(
 
     except Exception as e:
         log.error(f"[{req.pid}] Gemini error: {e}")
-        # Fall back to rule result or generic message if Gemini fails
         if rule_result:
             return ChatResponse(reply=rule_result.reply, source="rule", doctor=rule_result.doctor)
         return ChatResponse(
             reply=(
-                "I'm having trouble connecting to my AI service right now. "
-                "Please try again in a moment. If you have an urgent health concern, "
-                "please contact your doctor directly or call emergency services."
+                "I can help you with health questions, symptom checking, and finding the right doctor. "
+                "Could you describe your symptoms or health concern in more detail?"
             ),
             source="rule",
             doctor=None,
