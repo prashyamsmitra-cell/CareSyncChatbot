@@ -56,6 +56,7 @@ class ChatResponse(BaseModel):
     reply: str
     source: str         # "rule" or "gemini"
     doctor: Optional[dict] = None
+    redirect: Optional[str] = None  # tab to navigate to: overview/files/upload/appointments
 
 
 # ── Health check ──────────────────────────────────────────────
@@ -93,13 +94,12 @@ async def chat(
 
     if rule_result:
         log.info(f"[{req.pid}] Rule matched (confidence={rule_result.confidence:.1f}, off_topic={rule_result.off_topic})")
-        # Always use rule for off-topic, greetings, and app usage questions
-        # Only pass to Gemini if it's a health question with low confidence
         if rule_result.off_topic or rule_result.confidence >= 0.4:
             return ChatResponse(
                 reply=rule_result.reply,
                 source="rule",
                 doctor=rule_result.doctor,
+                redirect=getattr(rule_result, 'redirect', None),
             )
 
     # ── Step 2: Fall back to Gemini ───────────────────────────
