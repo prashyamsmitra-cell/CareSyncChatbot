@@ -23,44 +23,45 @@ class RuleResult:
 # ── Navigation redirects ───────────────────────────────────────
 NAV_RULES = [
     {
-        "keywords": ["upload file", "upload report", "upload prescription", "upload scan",
-                     "add file", "how to upload", "upload medical", "share file"],
+        "keywords": ["upload", "add file", "share file", "submit file", "upload medical", "upload report",
+                     "upload prescription", "upload scan", "how do i upload", "where to upload"],
         "reply": "Sure! To upload your medical files, head over to the **Upload** tab on your dashboard. You can drag and drop files or click to browse — supports PDFs, images, and scans. You can also add a note describing each file.",
         "redirect": "upload",
+        "exclude": ["appointment", "doctor", "symptom", "pain", "fever"],
     },
     {
-        "keywords": ["book appointment", "make appointment", "schedule appointment", "how to book",
-                     "book a doctor", "see a doctor", "appointment booking", "how do i make an appointment",
-                     "how to make appointment", "book slot", "schedule visit"],
+        "keywords": ["book", "appointment", "schedule", "see a doctor", "visit doctor",
+                     "how do i book", "make appointment", "how to book", "book slot", "book doctor"],
         "reply": "Of course! To book an appointment, go to the **Appointments** tab on your dashboard. Click **Book Appointment**, choose your doctor, pick a date, and select an available time slot. You can also add a reason for your visit.",
         "redirect": "appointments",
+        "exclude": ["cancel", "symptom", "pain", "fever", "hurt"],
     },
     {
-        "keywords": ["cancel appointment", "reschedule", "cancel booking"],
-        "reply": "To cancel an appointment, go to the **Appointments** tab and find the appointment you want to cancel. Click the cancel button next to it. Please note that only Pending or Confirmed appointments can be cancelled.",
+        "keywords": ["cancel appointment", "cancel booking", "reschedule appointment", "remove appointment"],
+        "reply": "To cancel an appointment, go to the **Appointments** tab and find the appointment you want to cancel. Click the cancel button next to it. Only Pending or Confirmed appointments can be cancelled.",
         "redirect": "appointments",
+        "exclude": [],
     },
     {
-        "keywords": ["my files", "view files", "see my files", "find my files", "my reports",
-                     "my prescriptions", "file library", "download file", "view report"],
+        "keywords": ["my files", "view files", "my reports", "my prescriptions", "file library",
+                     "download file", "view report", "see files", "find files", "where are my files"],
         "reply": "Your uploaded files are all in the **Files** tab on your dashboard. You can view, download, or delete any file from there. Each file shows its type, size, and upload date.",
         "redirect": "files",
+        "exclude": [],
     },
     {
-        "keywords": ["otp", "doctor access", "give doctor access", "doctor portal", "share records with doctor",
-                     "how does doctor access", "pid", "patient id", "my pid"],
+        "keywords": ["otp", "doctor access", "give doctor access", "doctor portal", "share records",
+                     "how does doctor", "pid", "patient id", "my pid", "patient id"],
         "reply": "To give your doctor access to your records, share your **Patient ID (PID)** with them — you can find it on your dashboard. Your doctor will enter your PID in the Doctor Portal and an OTP will be sent to your registered phone (or appear in your Appointments tab). Share the code verbally with your doctor and they'll get 2-hour access to your records.",
         "redirect": "appointments",
+        "exclude": [],
     },
     {
-        "keywords": ["ai chat", "chat", "talk to ai", "health chat", "ask health question"],
-        "reply": "You're already here! I'm CareSync AI and I'm ready to help. Go ahead and describe your symptoms or ask me any health question. 😊",
-        "redirect": None,
-    },
-    {
-        "keywords": ["overview", "dashboard", "home", "go back", "main page", "my profile", "my stats", "bmi"],
+        "keywords": ["overview", "home", "go back", "main page", "my profile", "my stats", "my bmi",
+                     "my weight", "my height", "my blood type"],
         "reply": "Your health overview including BMI, weight, height, blood type, and appointment summary is all on the **Overview** tab of your dashboard.",
         "redirect": "overview",
+        "exclude": [],
     },
 ]
 
@@ -305,6 +306,10 @@ def check_navigation(message: str) -> Optional[RuleResult]:
     best_match = None
     best_score = 0
     for rule in NAV_RULES:
+        # Skip if exclude words are present
+        excludes = rule.get("exclude", [])
+        if any(ex in msg for ex in excludes):
+            continue
         score = sum(1 for kw in rule["keywords"] if kw in msg)
         if score > best_score:
             best_score = score
