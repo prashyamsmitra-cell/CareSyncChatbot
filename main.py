@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from rules import match_rules
-from gemini import ask_gemini
+from gemini import GeminiRateLimitError, ask_gemini
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -106,7 +106,12 @@ async def chat(
     if not os.getenv("GEMINI_API_KEY"):
         # Gemini not configured — use rule result if we have one, else generic reply
         if rule_result:
-            return ChatResponse(reply=rule_result.reply, source="rule", doctor=rule_result.doctor)
+            return ChatResponse(
+                reply=rule_result.reply,
+                source="rule",
+                doctor=rule_result.doctor,
+                redirect=getattr(rule_result, "redirect", None),
+            )
         return ChatResponse(
             reply=(
                 "I'm not sure I fully understand your question. Could you describe your symptoms "
@@ -117,16 +122,41 @@ async def chat(
             doctor=None,
         )
 
+    history = [{"role": m.role, "content": m.content} for m in req.history]
+
     try:
-        history = [{"role": m.role, "content": m.content} for m in req.history]
         gemini_reply = await ask_gemini(message, history)
         log.info(f"[{req.pid}] Gemini replied ({len(gemini_reply)} chars)")
         return ChatResponse(reply=gemini_reply, source="gemini", doctor=None)
 
+    except GeminiRateLimitError as e:
+        log.warning(f"[{req.pid}] Gemini rate limited: {e}")
+        if rule_result:
+            return ChatResponse(
+                reply=rule_result.reply,
+                source="rule",
+                doctor=rule_result.doctor,
+                redirect=getattr(rule_result, "redirect", None),
+            )
+        return ChatResponse(
+            reply=(
+                "I'm having a brief delay reaching the medical assistant right now. "
+                "If you share your symptoms, how long you've had them, and how severe they are, "
+                "I'll still help with general guidance and suggest the right doctor."
+            ),
+            source="rule",
+            doctor=None,
+        )
+
     except Exception as e:
         log.error(f"[{req.pid}] Gemini error: {e}")
         if rule_result:
-            return ChatResponse(reply=rule_result.reply, source="rule", doctor=rule_result.doctor)
+            return ChatResponse(
+                reply=rule_result.reply,
+                source="rule",
+                doctor=rule_result.doctor,
+                redirect=getattr(rule_result, "redirect", None),
+            )
         return ChatResponse(
             reply=(
                 "I can help you with health questions, symptom checking, and finding the right doctor. "

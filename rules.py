@@ -545,7 +545,13 @@ def predict_disease(message: str) -> Optional[RuleResult]:
             best_score = matched
             best_match = disease
     if best_match:
-        return RuleResult(reply=best_match["reply"], doctor=best_match.get("doctor"), confidence=1.0)
+        redirect = "appointments" if best_match.get("doctor") else None
+        return RuleResult(
+            reply=best_match["reply"],
+            doctor=best_match.get("doctor"),
+            confidence=1.0,
+            redirect=redirect,
+        )
     return None
 
 
@@ -559,10 +565,12 @@ def match_symptom_rules(message: str) -> Optional[RuleResult]:
             best_score = score
             best_match = rule
     if best_match and best_score >= 1:
+        redirect = "appointments" if best_match.get("doctor") else None
         return RuleResult(
             reply=best_match["reply"],
             doctor=best_match.get("doctor"),
             confidence=min(1.0, best_score / 3),
+            redirect=redirect,
         )
     return None
 
