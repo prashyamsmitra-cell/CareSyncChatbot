@@ -4,6 +4,8 @@
 
 import os
 import logging
+from datetime import date
+from threading import Lock
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,11 +35,31 @@ app.add_middleware(
 
 # ── Auth ──────────────────────────────────────────────────────
 CARESYNC_API_KEY = os.getenv("CARESYNC_API_KEY", "")
+DAILY_CHAT_LIMIT = int(os.getenv("DAILY_CHAT_LIMIT", "10"))
+_usage_lock = Lock()
+_daily_usage = {}
 
 
 def verify_key(x_api_key: Optional[str]):
     if CARESYNC_API_KEY and x_api_key != CARESYNC_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key.")
+
+
+def check_and_record_daily_limit(pid: str) -> bool:
+    today = date.today().isoformat()
+
+    with _usage_lock:
+        record = _daily_usage.get(pid)
+
+        if not record or record["date"] != today:
+            _daily_usage[pid] = {"date": today, "count": 1}
+            return True
+
+        if record["count"] >= DAILY_CHAT_LIMIT:
+            return False
+
+        record["count"] += 1
+        return True
 
 
 # ── Request / Response models ─────────────────────────────────
@@ -83,17 +105,33 @@ async def chat(
 ):
     verify_key(x_api_key)
 
+    pid = req.pid.strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="PID is required.")
+
     message = req.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    log.info(f"[{req.pid}] User: {message[:80]}")
+    if not check_and_record_daily_limit(pid):
+        log.info(f"[{pid}] Daily chat limit reached")
+        return ChatResponse(
+            reply=(
+                f"You've reached your daily CareSync AI limit of {DAILY_CHAT_LIMIT} messages for today. "
+                "Please try again tomorrow, or use the dashboard to book an appointment with a doctor if you need help sooner."
+            ),
+            source="rule",
+            doctor=None,
+            redirect="appointments",
+        )
+
+    log.info(f"[{pid}] User: {message[:80]}")
 
     # ── Step 1: Try rule-based engine first ───────────────────
     rule_result = match_rules(message)
 
     if rule_result:
-        log.info(f"[{req.pid}] Rule matched (confidence={rule_result.confidence:.1f}, off_topic={rule_result.off_topic})")
+        log.info(f"[{pid}] Rule matched (confidence={rule_result.confidence:.1f}, off_topic={rule_result.off_topic})")
         if rule_result.off_topic or rule_result.confidence >= 0.4:
             return ChatResponse(
                 reply=rule_result.reply,
@@ -126,11 +164,11 @@ async def chat(
 
     try:
         gemini_reply = await ask_gemini(message, history)
-        log.info(f"[{req.pid}] Gemini replied ({len(gemini_reply)} chars)")
+        log.info(f"[{pid}] Gemini replied ({len(gemini_reply)} chars)")
         return ChatResponse(reply=gemini_reply, source="gemini", doctor=None)
 
     except GeminiRateLimitError as e:
-        log.warning(f"[{req.pid}] Gemini rate limited: {e}")
+        log.warning(f"[{pid}] Gemini rate limited: {e}")
         if rule_result:
             return ChatResponse(
                 reply=rule_result.reply,
@@ -149,7 +187,7 @@ async def chat(
         )
 
     except Exception as e:
-        log.error(f"[{req.pid}] Gemini error: {e}")
+        log.error(f"[{pid}] Gemini error: {e}")
         if rule_result:
             return ChatResponse(
                 reply=rule_result.reply,
