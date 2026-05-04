@@ -38,6 +38,7 @@ CARESYNC_API_KEY = os.getenv("CARESYNC_API_KEY", "")
 DAILY_CHAT_LIMIT = int(os.getenv("DAILY_CHAT_LIMIT", "10"))
 _usage_lock = Lock()
 _daily_usage = {}
+LIMIT_REACHED_MESSAGE = "Limit is reached. Please try again tomorrow."
 
 
 def verify_key(x_api_key: Optional[str]):
@@ -116,10 +117,7 @@ async def chat(
     if not check_and_record_daily_limit(pid):
         log.info(f"[{pid}] Daily chat limit reached")
         return ChatResponse(
-            reply=(
-                f"You've reached your daily CareSync AI limit of {DAILY_CHAT_LIMIT} messages for today. "
-                "Please try again tomorrow, or use the dashboard to book an appointment with a doctor if you need help sooner."
-            ),
+            reply=LIMIT_REACHED_MESSAGE,
             source="rule",
             doctor=None,
             redirect="appointments",
@@ -169,21 +167,11 @@ async def chat(
 
     except GeminiRateLimitError as e:
         log.warning(f"[{pid}] Gemini rate limited: {e}")
-        if rule_result:
-            return ChatResponse(
-                reply=rule_result.reply,
-                source="rule",
-                doctor=rule_result.doctor,
-                redirect=getattr(rule_result, "redirect", None),
-            )
         return ChatResponse(
-            reply=(
-                "I'm having a brief delay reaching the medical assistant right now. "
-                "If you share your symptoms, how long you've had them, and how severe they are, "
-                "I'll still help with general guidance and suggest the right doctor."
-            ),
+            reply=LIMIT_REACHED_MESSAGE,
             source="rule",
             doctor=None,
+            redirect="appointments",
         )
 
     except Exception as e:
