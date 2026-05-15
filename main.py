@@ -4,7 +4,7 @@
 
 import os
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from threading import Lock
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Header
@@ -35,10 +35,13 @@ app.add_middleware(
 
 # ── Auth ──────────────────────────────────────────────────────
 CARESYNC_API_KEY = os.getenv("CARESYNC_API_KEY", "")
-DAILY_CHAT_LIMIT = int(os.getenv("DAILY_CHAT_LIMIT", "10"))
+DAILY_CHAT_LIMIT = int(os.getenv("DAILY_CHAT_LIMIT", "200"))
+PER_MINUTE_CHAT_LIMIT = int(os.getenv("PER_MINUTE_CHAT_LIMIT", "10"))
 _usage_lock = Lock()
 _daily_usage = {}
-LIMIT_REACHED_MESSAGE = "Limit is reached. Please try again tomorrow."
+_minute_usage = {}
+DAILY_LIMIT_REACHED_MESSAGE = "Daily chat limit reached. Please try again tomorrow."
+MINUTE_LIMIT_REACHED_MESSAGE = "You're sending messages too quickly. Please wait a minute and try again."
 
 
 def verify_key(x_api_key: Optional[str]):
@@ -46,21 +49,41 @@ def verify_key(x_api_key: Optional[str]):
         raise HTTPException(status_code=401, detail="Invalid API key.")
 
 
-def check_and_record_daily_limit(pid: str) -> bool:
+def check_and_record_limits(pid: str) -> str:
     today = date.today().isoformat()
+    now = datetime.utcnow()
+    minute_window_start = now - timedelta(minutes=1)
 
     with _usage_lock:
-        record = _daily_usage.get(pid)
+        minute_record = _minute_usage.get(pid)
 
-        if not record or record["date"] != today:
+        if not minute_record:
+            _minute_usage[pid] = {"timestamps": [now]}
+        else:
+            timestamps = [
+                timestamp
+                for timestamp in minute_record["timestamps"]
+                if timestamp > minute_window_start
+            ]
+
+            if len(timestamps) >= PER_MINUTE_CHAT_LIMIT:
+                minute_record["timestamps"] = timestamps
+                return "minute_limit"
+
+            timestamps.append(now)
+            minute_record["timestamps"] = timestamps
+
+        daily_record = _daily_usage.get(pid)
+
+        if not daily_record or daily_record["date"] != today:
             _daily_usage[pid] = {"date": today, "count": 1}
-            return True
+            return "ok"
 
-        if record["count"] >= DAILY_CHAT_LIMIT:
-            return False
+        if daily_record["count"] >= DAILY_CHAT_LIMIT:
+            return "daily_limit"
 
-        record["count"] += 1
-        return True
+        daily_record["count"] += 1
+        return "ok"
 
 
 # ── Request / Response models ─────────────────────────────────
@@ -114,13 +137,22 @@ async def chat(
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    if not check_and_record_daily_limit(pid):
+    limit_status = check_and_record_limits(pid)
+    if limit_status == "daily_limit":
         log.info(f"[{pid}] Daily chat limit reached")
         return ChatResponse(
-            reply=LIMIT_REACHED_MESSAGE,
+            reply=DAILY_LIMIT_REACHED_MESSAGE,
             source="rule",
             doctor=None,
             redirect="appointments",
+        )
+    if limit_status == "minute_limit":
+        log.info(f"[{pid}] Per-minute chat limit reached")
+        return ChatResponse(
+            reply=MINUTE_LIMIT_REACHED_MESSAGE,
+            source="rule",
+            doctor=None,
+            redirect=None,
         )
 
     log.info(f"[{pid}] User: {message[:80]}")
@@ -168,7 +200,7 @@ async def chat(
     except GeminiRateLimitError as e:
         log.warning(f"[{pid}] Gemini rate limited: {e}")
         return ChatResponse(
-            reply=LIMIT_REACHED_MESSAGE,
+            reply=DAILY_LIMIT_REACHED_MESSAGE,
             source="rule",
             doctor=None,
             redirect="appointments",
